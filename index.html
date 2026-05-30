@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LangGraph Joke Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        @keyframes pulse-border {
+            0%, 100% { border-color: rgb(59 130 246 / 0.5); }
+            50% { border-color: rgb(59 130 246 / 1); }
+        }
+        .generating {
+            animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .score-bar {
+            transition: width 0.5s ease-in-out;
+        }
+        .iteration-card {
+            transition: all 0.3s ease;
+        }
+        .iteration-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div x-data="jokeGenerator()" class="container mx-auto px-4 py-8 max-w-4xl">
+        <!-- Header -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">🎭 LangGraph Tweet Generator</h1>
+            <p class="text-gray-600">Generate Funny, Sad, Cheerful, or Informative Tweets • Powered by Groq AI</p>
+        </header>
+
+        <!-- Main Input Section -->
+        <main class="bg-white rounded-2xl shadow-xl p-8 mb-8">
+            <div class="mb-6">
+                <label for="topic" class="block text-sm font-medium text-gray-700 mb-2">
+                    Enter a topic:
+                </label>
+                <input 
+                    type="text" 
+                    id="topic" 
+                    x-model="topic"
+                    @keyup.enter="generateJoke()"
+                    placeholder="e.g., cats, pizza, programming..."
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    :disabled="generating"
+                >
+            </div>
+            
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Select tweet type:
+                </label>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <template x-for="type in tweetTypes" :key="type.value">
+                        <label class="relative">
+                            <input 
+                                type="radio" 
+                                :value="type.value"
+                                x-model="tweetType"
+                                :disabled="generating"
+                                class="peer sr-only"
+                            >
+                            <div class="px-4 py-3 border-2 rounded-lg cursor-pointer transition-all text-center
+                                       peer-checked:border-blue-500 peer-checked:bg-blue-50 peer-checked:text-blue-700
+                                       border-gray-200 hover:border-gray-300"
+                                 :class="generating ? 'opacity-50 cursor-not-allowed' : ''">
+                                <div class="text-lg mb-1" x-text="type.emoji"></div>
+                                <div class="text-sm font-medium" x-text="type.label"></div>
+                                <div class="text-xs text-gray-500" x-text="type.description"></div>
+                            </div>
+                        </label>
+                    </template>
+                </div>
+            </div>
+            
+            <div class="mb-6">
+                <button 
+                    @click="generateJoke()"
+                    :disabled="generating || !topic.trim()"
+                    class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition duration-200 font-medium"
+                >
+                    <span x-show="!generating">🚀 Generate Tweet</span>
+                    <span x-show="generating" class="flex items-center justify-center gap-2">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Generating...
+                    </span>
+                </button>
+            </div>
+
+            <!-- Error Message -->
+            <div x-show="error" x-transition class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p class="text-red-700" x-text="error"></p>
+            </div>
+
+            <!-- Results Section -->
+            <div x-show="result.tweet" x-transition class="space-y-6">
+                <!-- Tweet Display -->
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                        <span>📢</span> Generated Tweet
+                    </h3>
+                    <p class="text-gray-700 text-lg leading-relaxed" x-text="result.tweet"></p>
+                </div>
+
+                <!-- Score and Metrics -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Score Card -->
+                    <div class="bg-white border border-gray-200 rounded-lg p-4">
+                        <h4 class="text-sm font-medium text-gray-500 mb-2">Humor Score</h4>
+                        <div class="flex items-center gap-3">
+                            <div class="flex-1">
+                                <div class="bg-gray-200 rounded-full h-3 overflow-hidden">
+                                    <div 
+                                        class="score-bar h-full rounded-full"
+                                        :class="result.score >= 8 ? 'bg-green-500' : result.score >= 6 ? 'bg-yellow-500' : 'bg-red-500'"
+                                        :style="`width: ${(result.score / 10) * 100}%`"
+                                    ></div>
+                                </div>
+                            </div>
+                            <span class="text-2xl font-bold" :class="result.score >= 8 ? 'text-green-600' : result.score >= 6 ? 'text-yellow-600' : 'text-red-600'" x-text="result.score + '/10'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Attempts Card -->
+                    <div class="bg-white border border-gray-200 rounded-lg p-4">
+                        <h4 class="text-sm font-medium text-gray-500 mb-2">Attempts</h4>
+                        <div class="flex items-center gap-3">
+                            <div class="text-2xl font-bold text-blue-600" x-text="result.iterations"></div>
+                            <div class="text-sm text-gray-600">
+                                <div x-show="result.success" class="text-green-600">✅ Success</div>
+                                <div x-show="!result.success" class="text-red-600">❌ Max attempts</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Card -->
+                    <div class="bg-white border border-gray-200 rounded-lg p-4">
+                        <h4 class="text-sm font-medium text-gray-500 mb-2">System</h4>
+                        <div class="text-sm text-gray-700" x-text="result.workflow_type"></div>
+                    </div>
+                </div>
+
+                <!-- History Button -->
+                <div class="text-center">
+                    <button 
+                        @click="showHistory = !showHistory"
+                        class="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-200 font-medium"
+                    >
+                        <span x-show="!showHistory">📋 Show State History</span>
+                        <span x-show="showHistory">📋 Hide State History</span>
+                    </button>
+                </div>
+
+                <!-- State History Section -->
+                <div x-show="showHistory" x-transition class="space-y-4">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">🔄 State History</h3>
+                    
+                    <div x-show="result.iteration_history && result.iteration_history.length > 0">
+                        <template x-for="(iteration, index) in result.iteration_history" :key="index">
+                            <div class="iteration-card bg-white border border-gray-200 rounded-lg p-4">
+                                <div class="flex items-start justify-between mb-3">
+                                    <div class="flex items-center gap-3">
+                                        <span class="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">
+                                            Iteration <span x-text="iteration.iteration"></span>
+                                        </span>
+                                        <span class="text-lg font-bold" :class="iteration.score >= 8 ? 'text-green-600' : iteration.score >= 6 ? 'text-yellow-600' : 'text-red-600'" x-text="iteration.score + '/10'"></span>
+                                        <span x-show="iteration.is_funny" class="text-green-600 text-sm">✅ Funny enough</span>
+                                        <span x-show="!iteration.is_funny" class="text-red-600 text-sm">🔄 Not funny enough</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="space-y-2">
+                                    <div>
+                                        <h5 class="text-sm font-medium text-gray-500 mb-1">Tweet:</h5>
+                                        <p class="text-gray-700 bg-gray-50 p-3 rounded" x-text="iteration.tweet"></p>
+                                    </div>
+                                    
+                                    <div>
+                                        <h5 class="text-sm font-medium text-gray-500 mb-1">Reasoning:</h5>
+                                        <p class="text-gray-600 text-sm bg-yellow-50 p-3 rounded" x-text="iteration.reasoning"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <div x-show="!result.iteration_history || result.iteration_history.length === 0" class="text-center text-gray-500 py-8">
+                        <p>No iteration history available</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="text-center text-gray-600 text-sm">
+            <p>🚀 Powered by LangGraph with State Reducers • Groq AI Integration</p>
+        </footer>
+    </div>
+
+    <script>
+        function jokeGenerator() {
+            return {
+                topic: '',
+                tweetType: 'funny',
+                generating: false,
+                error: '',
+                result: {
+                    tweet: '',
+                    score: 0,
+                    iterations: 0,
+                    success: false,
+                    workflow_type: '',
+                    iteration_history: [],
+                    tweet_type: ''
+                },
+                showHistory: false,
+                tweetTypes: [
+                    { value: 'funny', label: 'Funny', emoji: '😄', description: 'Humorous & clever' },
+                    { value: 'sad', label: 'Sad', emoji: '😢', description: 'Emotional & touching' },
+                    { value: 'cheerful', label: 'Cheerful', emoji: '😊', description: 'Positive & uplifting' },
+                    { value: 'informative', label: 'Informative', emoji: '📚', description: 'Educational & factual' }
+                ],
+
+                async generateJoke() {
+                    if (!this.topic.trim()) {
+                        this.error = 'Please enter a topic';
+                        return;
+                    }
+
+                    this.generating = true;
+                    this.error = '';
+                    this.result = {
+                        tweet: '',
+                        score: 0,
+                        iterations: 0,
+                        success: false,
+                        workflow_type: '',
+                        iteration_history: [],
+                        tweet_type: this.tweetType
+                    };
+
+                    try {
+                        const response = await fetch('/generate', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                topic: this.topic,
+                                tweet_type: this.tweetType
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if (data.success) {
+                            this.result = {
+                                tweet: data.tweet,
+                                score: parseFloat(data.score).toFixed(1), // Format to 1 decimal place
+                                iterations: data.iterations,
+                                success: data.success_status,
+                                workflow_type: data.workflow_type,
+                                iteration_history: data.iteration_history || [],
+                                tweet_type: data.tweet_type
+                            };
+                        } else {
+                            this.error = data.error || 'Failed to generate tweet';
+                        }
+                    } catch (err) {
+                        this.error = 'Network error. Please try again.';
+                    } finally {
+                        this.generating = false;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
